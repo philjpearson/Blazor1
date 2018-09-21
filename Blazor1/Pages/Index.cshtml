@@ -1,7 +1,275 @@
-﻿@page "/"
+﻿<!-- Last mod: 21 September 2018 20:36:52 -->
 
-<h1>Hello, world!</h1>
+@page "/"
+@inject HttpClient Http
 
-Welcome to your new app.
+@if (obsLoaded)
+	{
+	<h1>Observations</h1>
+	@if ((observations?.SiteRep?.Wx?.Param?.Count ?? 0) != 0)
+		{
+		<h2>Parameters</h2>
+		<table class="table">
+			<thead>
+				<tr>
+					<th>Name</th>
+					<th>Description</th>
+					<th>Units</th>
+				</tr>
+			</thead>
+			<tbody>
+				@foreach (var param in observations.SiteRep.Wx.Param)
+					{
+					<tr>
+						<td>@param.name</td>
+						<td>@param.dollar</td>
+						<td>@param.units</td>
+					</tr>
+					}
+			</tbody>
+		</table>
+		<hr />
+		if ((observations?.SiteRep?.DV?.Location?.Count ?? 0) > 0)
+			{
+			<table class="table">
+				<thead>
+					<tr>
+						<th width="30" align="center"></th>
+						<th>Name</th>
+						<th>Country</th>
+						<th>Lat</th>
+						<th>Long</th>
+						<th>Elevation</th>
+						<th>id</th>
+					</tr>
+				</thead>
+				<tbody>
+					@foreach (var loc in observations.SiteRep.DV.Location)
+						{
+						<tr onclick="@(async () => await GetLocationDetails(loc.i))" style="cursor:pointer;">
+							<td align="center">
+								@if (loc.i == locationId)
+									{
+									<img src="@imageName" />
+									}
+								else
+									{
+									<img src="images/expand.png" />
+									}
+							</td>
+							<td>@loc.name</td>
+							<td>@loc.country</td>
+							<td>@loc.lat</td>
+							<td>@loc.lon</td>
+							<td>@loc.elevation</td>
+							<td>@loc.i</td>
+						</tr>
+						@if (showDetails && loc.i == locationId)
+							{
+							<tr>
+								<td></td>
+								<td colspan="6">
+									@DynamicContent
+								</td>
+							</tr>
+							}
+						}
+				</tbody>
+			</table>
+			}
+		else
+			{
+			<p style="color:red">Got no locations</p>
+			}
+		}
+	else
+		{
+		<p style="color:red">Got no params</p>
+		}
+	<hr />
+	}
+else
+	{
+	<h1>Weather Observations</h1>
+	<div class="input-group col-md-3">
+		<input type="text" class="form-control" placeholder="Hour" bind="@hour" maxlength="2" />
+		<div class="input-group-append">
+			<button class="btn btn-secondary" type="button" onclick="@GetObservations">Get Observations</button>
+		</div>
+	</div>
+	}
+<br /><span style="color:red">@errorMessage</span>
 
-<SurveyPrompt Title="How is Blazor working for you?" />
+@functions
+{
+	string errorMessage = "no error";
+	int hour;
+	string json;
+	string imageName = "images/expand.png";
+	Models.Observations observations;
+	Models.Rep rep;
+	int locationId = 0;
+	bool obsLoaded = false;
+	bool showDetails = false;
+
+	private Microsoft.AspNetCore.Blazor.RenderFragment DynamicContent;
+
+	private async Task GetObservations()
+		{
+		Http.DefaultRequestHeaders.Add("Accept", "application/vnd.noaa.dwml+json;version=1");
+		Http.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36");
+
+		try
+			{
+			var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+			json = await Http.GetStringAsync($"http://datapoint.metoffice.gov.uk/public/data/val/wxobs/all/json/all?res=hourly&time={today}T{hour}Z&key=5d4c57bd-5584-479b-a57e-090e041c705b");
+			json = json.Replace("$", "dollar");
+			observations = Json.Deserialize<Models.Observations>(json);
+			obsLoaded = true;
+			}
+		catch (Exception ex)
+			{
+			errorMessage = ex.Message;
+			}
+		}
+
+	private async Task GetLocationDetails(int locId)
+		{
+		try
+			{
+			rep = observations.SiteRep.DV.Location.Where(l => l.i == locId).FirstOrDefault()?.Period?.Rep;
+			}
+		catch (Exception ex)
+			{
+			errorMessage = ex.Message;
+			}
+		if (rep == null)
+			{
+			errorMessage = $"Null rep for {locId}";
+			}
+
+		if (locId != locationId)
+			{
+			imageName = "images/toggle.png";
+			showDetails = true;
+			}
+		else
+			{
+			if (!showDetails)
+				{
+				imageName = "images/toggle.png";
+				showDetails = true;
+				}
+			else
+				{
+				imageName = "images/expand.png";
+				showDetails = false;
+				}
+			}
+
+		locationId = locId;
+
+		try
+			{
+			DynamicContent = builder =>
+			{
+				rep = observations.SiteRep.DV.Location.Where(l => l.i == locationId).FirstOrDefault()?.Period?.Rep;
+
+				var seq = 0;
+				builder.OpenElement(seq, "table");
+				builder.AddAttribute(seq, "style", "background-color:#ECF3F4;border-style:dashed;border-width:2px;border-color:#0A2464; padding:5px;width:100%;table-layout:fixed;");
+
+				// table head
+				builder.OpenElement(++seq, "thead");
+				builder.OpenElement(++seq, "tr");
+				builder.AddAttribute(++seq, "style", "height: 30px;border-style:inset;border-width:1px;border-color:#6D7B8D; background-color:#336699; color:#FFFFFF;");
+				builder.OpenElement(++seq, "td");
+				builder.AddContent(++seq, "Location Report Details");
+				builder.CloseElement();
+
+				builder.OpenElement(++seq, "td");
+				builder.AddContent(++seq, observations.SiteRep.Wx.Param.Where(p=>p.name=="W").First().dollar);
+				builder.CloseElement();
+				builder.OpenElement(++seq, "td");
+				builder.AddContent(++seq, observations.SiteRep.Wx.Param.Where(p => p.name == "V").First().dollar);
+				builder.CloseElement();
+				builder.OpenElement(++seq, "td");
+				builder.AddContent(++seq, observations.SiteRep.Wx.Param.Where(p => p.name == "T").First().dollar);
+				builder.CloseElement();
+				builder.OpenElement(++seq, "td");
+				builder.AddContent(++seq, observations.SiteRep.Wx.Param.Where(p => p.name == "S").First().dollar);
+				builder.CloseElement();
+				builder.OpenElement(++seq, "td");
+				builder.AddContent(++seq, observations.SiteRep.Wx.Param.Where(p => p.name == "P").First().dollar);
+				builder.CloseElement();
+				builder.OpenElement(++seq, "td");
+				builder.AddContent(++seq, observations.SiteRep.Wx.Param.Where(p => p.name == "G").First().dollar);
+				builder.CloseElement();
+				builder.OpenElement(++seq, "td");
+				builder.AddContent(++seq, observations.SiteRep.Wx.Param.Where(p => p.name == "D").First().dollar);
+				builder.CloseElement();
+				builder.OpenElement(++seq, "td");
+				builder.AddContent(++seq, observations.SiteRep.Wx.Param.Where(p => p.name == "Pt").First().dollar);
+				builder.CloseElement();
+				builder.OpenElement(++seq, "td");
+				builder.AddContent(++seq, observations.SiteRep.Wx.Param.Where(p => p.name == "Dp").First().dollar);
+				builder.CloseElement();
+				builder.OpenElement(++seq, "td");
+				builder.AddContent(++seq, observations.SiteRep.Wx.Param.Where(p => p.name == "H").First().dollar);
+				builder.CloseElement();
+
+				builder.CloseElement(); // /tr
+				builder.CloseElement(); // /thead
+
+				// table body
+				if (rep != null)
+					{
+					builder.OpenElement(++seq, "tbody");
+					builder.OpenElement(++seq, "tr");
+
+					builder.OpenElement(++seq, "td");
+					builder.CloseElement();
+					builder.OpenElement(++seq, "td");
+					builder.AddContent(++seq, rep.W);
+					builder.CloseElement();
+					builder.OpenElement(++seq, "td");
+					builder.AddContent(++seq, rep.V);
+					builder.CloseElement();
+					builder.OpenElement(++seq, "td");
+					builder.AddContent(++seq, rep.T);
+					builder.CloseElement();
+					builder.OpenElement(++seq, "td");
+					builder.AddContent(++seq, rep.S);
+					builder.CloseElement();
+					builder.OpenElement(++seq, "td");
+					builder.AddContent(++seq, rep.P);
+					builder.CloseElement();
+					builder.OpenElement(++seq, "td");
+					builder.AddContent(++seq, rep.G);
+					builder.CloseElement();
+					builder.OpenElement(++seq, "td");
+					builder.AddContent(++seq, rep.D);
+					builder.CloseElement();
+					builder.OpenElement(++seq, "td");
+					builder.AddContent(++seq, rep.Pt);
+					builder.CloseElement();
+					builder.OpenElement(++seq, "td");
+					builder.AddContent(++seq, rep.Dp);
+					builder.CloseElement();
+					builder.OpenElement(++seq, "td");
+					builder.AddContent(++seq, rep.H);
+					builder.CloseElement();
+
+					builder.CloseElement(); // /tr
+					builder.CloseElement(); // /tbody
+					}
+				builder.CloseElement(); // /table
+			};
+			}
+		catch (Exception ex)
+			{
+			errorMessage = ex.Message;
+			}
+		}
+}
+
